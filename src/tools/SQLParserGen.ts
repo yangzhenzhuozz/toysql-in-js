@@ -1,19 +1,17 @@
 import fs from 'fs';
 import { Grammar, default as TSCC } from 'tscc';
-import { sqlSession } from './SQLContext.js';
 import { ExpNode, SelectList } from './ExpTree.js';
 import { DataSet } from './DataSet.js';
+import { SQLSession } from './SQLSession.js';
+declare let Context: SQLSession;
 function gen() {
   let grammar: Grammar = {
-    userCode: `//这个文件用SQLParserGen.ts生成的
-import { sqlSession } from './Session.js';
-import { ExpNode, SelectList } from './ExpTree.js';
-import { DataSet } from './DataSet.js';
-    `,
-    tokens: ['.', 'from', 'id', 'select', 'where', ',', 'as', '+', '-', '*', '/', '(', ')', 'if', 'then', 'else', 'elseif', 'end', 'and', 'or', 'order', 'group', 'by', 'asc', 'desc', 'having', 'limit', 'number', 'string'],
+    userCode: `//这个文件用SQLParserGen.ts生成的`,
+    tokens: ['.', 'from', 'id', 'select', 'where', ',', 'as', '<', '<=', '>', '>=', '=', '+', '-', '*', '/', '(', ')', 'if', 'then', 'else', 'elseif', 'end', 'and', 'or', 'order', 'group', 'by', 'asc', 'desc', 'having', 'limit', 'number', 'string'],
     association: [
       { left: ['or'] },
       { left: ['and'] },
+      { nonassoc: ['<', '<=', '=', '>', '>='] },
       { left: ['+', '-'] },
       { left: ['*', '/'] },
       { nonassoc: ['low_as'] }, //比as优先级低一些
@@ -110,10 +108,10 @@ import { DataSet } from './DataSet.js';
         'tableView:id': {
           action: function ($): DataSet<any> {
             let id = $[0] as string;
-            if (sqlSession.tableView[id] == undefined) {
+            if (Context.tableView[id] == undefined) {
               throw `表"${id}"不存在`;
             }
-            return sqlSession.tableView[id];
+            return Context.tableView[id];
           },
         },
       },
@@ -122,10 +120,10 @@ import { DataSet } from './DataSet.js';
           action: function ($): DataSet<any> {
             let id = $[0] as string;
             let alias = $[2] as string;
-            if (sqlSession.tableView[id] == undefined) {
+            if (Context.tableView[id] == undefined) {
               throw `表"${id}"不存在`;
             }
-            return sqlSession.tableView[id].alias(alias);
+            return Context.tableView[id].alias(alias);
           },
         },
       },
@@ -198,22 +196,155 @@ import { DataSet } from './DataSet.js';
           },
         },
       },
-      { 'exp:exp + exp': {} },
-      { 'exp:exp - exp': {} },
-      { 'exp:exp * exp': {} },
-      { 'exp:exp / exp': {} },
-      { 'exp:exp and exp': {} },
-      { 'exp:exp or exp': {} },
-      { 'exp:( exp )': {} },
+      {
+        'exp:exp + exp': {
+          action: function ($): ExpNode {
+            let e1 = $[0] as ExpNode;
+            let e2 = $[2] as ExpNode;
+            return {
+              op: 'add',
+              children: [e1, e2],
+            };
+          },
+        },
+      },
+      {
+        'exp:exp - exp': {
+          action: function ($): ExpNode {
+            let e1 = $[0] as ExpNode;
+            let e2 = $[2] as ExpNode;
+            return {
+              op: 'sub',
+              children: [e1, e2],
+            };
+          },
+        },
+      },
+      {
+        'exp:exp * exp': {
+          action: function ($): ExpNode {
+            let e1 = $[0] as ExpNode;
+            let e2 = $[2] as ExpNode;
+            return {
+              op: 'mul',
+              children: [e1, e2],
+            };
+          },
+        },
+      },
+      {
+        'exp:exp < exp': {
+          action: function ($): ExpNode {
+            let e1 = $[0] as ExpNode;
+            let e2 = $[2] as ExpNode;
+            return {
+              op: 'lt',
+              children: [e1, e2],
+            };
+          },
+        },
+      },
+      {
+        'exp:exp <= exp': {
+          action: function ($): ExpNode {
+            let e1 = $[0] as ExpNode;
+            let e2 = $[2] as ExpNode;
+            return {
+              op: 'le',
+              children: [e1, e2],
+            };
+          },
+        },
+      },
+      {
+        'exp:exp > exp': {
+          action: function ($): ExpNode {
+            let e1 = $[0] as ExpNode;
+            let e2 = $[2] as ExpNode;
+            return {
+              op: 'gt',
+              children: [e1, e2],
+            };
+          },
+        },
+      },
+      {
+        'exp:exp >= exp': {
+          action: function ($): ExpNode {
+            let e1 = $[0] as ExpNode;
+            let e2 = $[2] as ExpNode;
+            return {
+              op: 'ge',
+              children: [e1, e2],
+            };
+          },
+        },
+      },
+      {
+        'exp:exp = exp': {
+          action: function ($): ExpNode {
+            let e1 = $[0] as ExpNode;
+            let e2 = $[2] as ExpNode;
+            return {
+              op: 'eq',
+              children: [e1, e2],
+            };
+          },
+        },
+      },
+      {
+        'exp:exp / exp': {
+          action: function ($): ExpNode {
+            let e1 = $[0] as ExpNode;
+            let e2 = $[2] as ExpNode;
+            return {
+              op: 'div',
+              children: [e1, e2],
+            };
+          },
+        },
+      },
+      {
+        'exp:( exp )': {
+          action: function ($): ExpNode {
+            return $[1] as ExpNode;
+          },
+        },
+      },
+      {
+        'exp:exp and exp': {
+          action: function ($): ExpNode {
+            let e1 = $[0] as ExpNode;
+            let e2 = $[2] as ExpNode;
+            return {
+              op: 'and',
+              children: [e1, e2],
+            };
+          },
+        },
+      },
+      {
+        'exp:exp or exp': {
+          action: function ($): ExpNode {
+            let e1 = $[0] as ExpNode;
+            let e2 = $[2] as ExpNode;
+            return {
+              op: 'or',
+              children: [e1, e2],
+            };
+          },
+        },
+      },
+      { 'exp:if exp then exp else exp end': {} },
+      { 'exp:if exp then exp elseif_list else exp end': {} },
+      { 'elseif_list:elseif_list elseif_item': {} },
+      { 'elseif_list:elseif_item': {} },
+      { 'elseif_item:elseif exp then exp': {} },
       { 'exp:id ( argu_list )': {} },
       { 'argu_list:ε': {} },
       { 'argu_list:argu_item , argu_list': {} },
       { 'argu_list:argu_item': {} },
       { 'argu_item:exp': {} },
-      { 'exp:if exp then exp elseif_list else exp end': {} },
-      { 'elseif_list:elseif_list elseif_item': {} },
-      { 'elseif_list:elseif_item': {} },
-      { 'elseif_item:elseif exp then exp': {} },
     ],
   };
   let tscc = new TSCC(grammar, { debug: false, language: 'zh-cn' });

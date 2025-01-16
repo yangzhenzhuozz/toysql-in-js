@@ -9,11 +9,9 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "dependencies": {
+  "devDependencies": {
+    "@types/node": "^22.10.7",
     "tscc": "file:../tscc/tscc-1.0.0.tgz",
     "tslex": "file:../tslex/tslex-1.0.0.tgz"
-  },
-  "devDependencies": {
-    "@types/node": "^22.10.6"
   }
 }

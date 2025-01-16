@@ -9,6 +9,13 @@ let rules: LexerRule<YYTOKEN>[] = [
   {reg: 'where',handler: function (text) {return {yytext: 'where',type: text,value: text,};},}, // prettier-ignore
   {reg: ',',handler: function (text) {return {yytext: ',',type: text,value: text,};},}, // prettier-ignore
   {reg: 'as',handler: function (text) {return {yytext: 'as',type: text,value: text,};},}, // prettier-ignore
+
+  {reg: '<',handler: function (text) {return {yytext: '<',type: text,value: text,};},}, // prettier-ignore
+  {reg: '<=',handler: function (text) {return {yytext: '<=',type: text,value: text,};},}, // prettier-ignore
+  {reg: '=',handler: function (text) {return {yytext: '=',type: text,value: text,};},}, // prettier-ignore
+  {reg: '>',handler: function (text) {return {yytext: '>',type: text,value: text,};},}, // prettier-ignore
+  {reg: '>=',handler: function (text) {return {yytext: '>=',type: text,value: text,};},}, // prettier-ignore
+
   {reg: '\\*',handler: function (text) {return {yytext: '*',type: text,value: text,};},}, // prettier-ignore
   {reg: '\\.',handler: function (text) {return {yytext: '.',type: text,value: text,};},}, // prettier-ignore
   {reg: '\\+',handler: function (text) {return {yytext: '\\+',type: text,value: text,};},}, // prettier-ignore
@@ -68,5 +75,26 @@ function test() {
     }
   }
 }
-// test();
-fs.writeFileSync('src/dfaData.json', JSON.stringify(dfa.serialize()));
+
+//序列化的时候给函数参数加上string签名，可能会有bug
+let functionStrCache: { [key: string]: string } = {};
+let serializedDfa = JSON.stringify(dfa.serialize(), (key, value) => {
+  if (typeof value === 'function') {
+    let signature = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+      let r = (Math.random() * 16) | 0,
+        v = c == 'x' ? r : (r & 0x3) | 0x8;
+      return v.toString(16);
+    });
+    let functionStr = value.toString().replace(/^(function)?\s*\(([^\)]*)\)/, '$1 ($2:string)');
+    functionStrCache[signature] = functionStr;
+    return signature;
+  } else {
+    return value;
+  }
+});
+
+for (let k in functionStrCache) {
+  serializedDfa = serializedDfa.replaceAll(`"${k}"`, functionStrCache[k]);
+}
+
+fs.writeFileSync('src/tools/lexicalRules.ts', `export default ${serializedDfa};`);
