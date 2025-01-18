@@ -1,17 +1,18 @@
 import fs from 'fs';
 import { Grammar, default as TSCC } from 'tscc';
-import { ExpNode, SelectList } from './ExpTree.js';
-import { DataSet } from './DataSet.js';
-import { SQLSession } from './SQLSession.js';
+import { ExpNode, SelectList } from '../tools/ExpTree.js';
+import { DataSet } from '../tools/DataSet.js';
+import { SQLSession } from '../tools/SQLSession.js';
 declare let Context: SQLSession;
 function gen() {
   let grammar: Grammar = {
     userCode: `//这个文件用SQLParserGen.ts生成的`,
-    tokens: ['.', 'from', 'id', 'select', 'where', ',', 'as', '<', '<=', '>', '>=', '=', '+', '-', '*', '/', '(', ')', 'if', 'then', 'else', 'elseif', 'end', 'and', 'or', 'order', 'group', 'by', 'asc', 'desc', 'having', 'limit', 'number', 'string'],
+    tokens: ['.', 'left', 'join', 'from', 'on', 'id', 'select', 'where', ',', 'as', '<', '<=', '>', '>=', '=', '+', '-', '*', '/', '%', '(', ')', 'if', 'then', 'else', 'elseif', 'end', 'and', 'or', 'order', 'group', 'by', 'asc', 'desc', 'having', 'limit', 'number', 'string'],
     association: [
       { left: ['or'] },
       { left: ['and'] },
       { nonassoc: ['<', '<=', '=', '>', '>='] },
+      { left: ['%'] },
       { left: ['+', '-'] },
       { left: ['*', '/'] },
       { nonassoc: ['low_as'] }, //比as优先级低一些
@@ -34,9 +35,33 @@ function gen() {
             let select_clause = $[0] as SelectList;
             let tableView = $[2] as DataSet<any>;
             let where_clause = $[3] as ExpNode | undefined;
+            let group_clause = $[4] as ExpNode | undefined;
+            let order_clause = $[5] as ExpNode[] | undefined;
+            let limit_clause = $[6] as ExpNode | undefined;
+
             if (where_clause) {
               tableView = tableView.where(where_clause);
             }
+            if (group_clause != undefined) {
+              if (group_clause.op == 'group') {
+                tableView = tableView.group(group_clause.children!);
+              } else if (group_clause.op == 'group_having') {
+                let group_exps = group_clause.children!.slice(0, -1);
+                let having_condition = group_clause.children!.slice(-1)[0];
+                tableView = tableView.group(group_exps);
+                tableView = tableView.where(having_condition);
+              }
+            }
+
+            if (order_clause != undefined) {
+              tableView = tableView.orderBy(order_clause);
+            }
+
+            if (limit_clause != undefined) {
+              tableView = tableView.limit(limit_clause);
+            }
+
+            //select作用在最后
             if (select_clause.type == '*') {
               return tableView;
             } else {
@@ -141,6 +166,16 @@ function gen() {
         },
       },
       {
+        'tableView:tableView left join tableView on exp': {
+          action: function ($): DataSet<any> {
+            let left = $[0] as DataSet<any>;
+            let right = $[3] as DataSet<any>;
+            let condition = $[5] as ExpNode;
+            return left.leftJoin(right, condition);
+          },
+        },
+      },
+      {
         'where_clause:': {
           action: function () {
             //什么也不做
@@ -223,19 +258,118 @@ function gen() {
           },
         },
       }, //这里可能会导致性能问题，如:from t group by f1(t.v1) select f1(t.v1)，甚至是非常复杂的表达式计算，实在没时间做优化了
-      { 'having_clause:': {} },
-      { 'having_clause:having exp': {} },
-      { 'order_clause:': {} },
-      { 'order_clause:order by order_by_list': {} },
-      { 'order_by_list:order_by_list , order_by_item': {} },
-      { 'order_by_list:order_by_item order_key': {} },
-      { 'order_key:': {} },
-      { 'order_key:asc': {} },
-      { 'order_key:desc': {} },
-      { 'order_by_item:id': {} },
-      { 'limit_clause:': {} },
-      { 'limit_clause:limit number': {} },
-      { 'limit_clause:limit number , number': {} },
+      {
+        'having_clause:': {
+          action: function () {
+            //什么也不做
+          },
+        },
+      },
+      {
+        'having_clause:having exp': {
+          action: function ($) {
+            let exp = $[1] as ExpNode;
+            return exp;
+          },
+        },
+      },
+      {
+        'order_clause:': {
+          action: function () {
+            //什么也不做
+          },
+        },
+      },
+      {
+        'order_clause:order by order_by_list': {
+          action: function ($): ExpNode[] {
+            let order_by_list = $[2] as ExpNode[];
+            return order_by_list;
+          },
+        },
+      },
+      {
+        'order_by_list:order_by_list , order_by_item': {
+          action: function ($): ExpNode[] {
+            let order_by_list = $[0] as ExpNode[];
+            let order_by_item = $[2] as ExpNode;
+            return [...order_by_list, order_by_item];
+          },
+        },
+      },
+      {
+        'order_by_list:order_by_item': {
+          action: function ($): ExpNode[] {
+            return [$[0] as ExpNode];
+          },
+        },
+      },
+      {
+        'order_by_item:exp order_key': {
+          action: function ($): ExpNode {
+            return {
+              op: 'order',
+              children: [$[0] as ExpNode],
+              order: $[1] as 'asc' | 'desc',
+              targetName: `${(<ExpNode>$[0]).targetName} ${$[1]}`,
+            };
+          },
+        },
+      },
+      {
+        'order_key:': {
+          action: function () {
+            //如果不指定排序key,则默认为asc
+            return 'asc';
+          },
+        },
+      },
+      {
+        'order_key:asc': {
+          action: function () {
+            return 'asc';
+          },
+        },
+      },
+      {
+        'order_key:desc': {
+          action: function () {
+            return 'desc';
+          },
+        },
+      },
+      {
+        'limit_clause:': {
+          action: function () {
+            //什么也不做
+          },
+        },
+      },
+      {
+        'limit_clause:limit number': {
+          action: function ($): ExpNode {
+            let n = $[1] as number;
+            return {
+              op: 'limit',
+              targetName: `limit ${n}`,
+              limit: [n],
+            };
+          },
+        },
+      },
+      {
+        'limit_clause:limit number , number': {
+          action: function ($): ExpNode {
+            let n1 = $[1] as number;
+            let n2 = $[3] as number;
+            return {
+              op: 'limit',
+              targetName: `limit ${n1},${n2}`,
+              limit: [n1, n2],
+            };
+          },
+        },
+      },
       {
         'exp:number': {
           action: function ($): ExpNode {
@@ -281,6 +415,19 @@ function gen() {
               op: 'getfield',
               value: `${fieldName}`,
               targetName: fieldName,
+            };
+          },
+        },
+      },
+      {
+        'exp:exp % exp': {
+          action: function ($): ExpNode {
+            let e1 = $[0] as ExpNode;
+            let e2 = $[2] as ExpNode;
+            return {
+              op: 'mod',
+              children: [e1, e2],
+              targetName: `${e1.targetName} % ${e2.targetName}`,
             };
           },
         },
@@ -542,9 +689,10 @@ function gen() {
       },
     ],
   };
+  console.log(`一共有${grammar.BNF.length}个BNF`);
   let tscc = new TSCC(grammar, { debug: false, language: 'zh-cn' });
   let compilerSorce = tscc.generate();
   fs.writeFileSync('./src/tools/SQLParser.ts', compilerSorce!);
-  console.log('geneate end');
+  console.log('parse geneate end');
 }
 gen();

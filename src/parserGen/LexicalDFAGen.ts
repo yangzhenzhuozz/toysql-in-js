@@ -1,6 +1,6 @@
 import { genDFA } from 'tslex';
 import { DFAAutomaton, LexerRule } from 'tslex/dist/automaton.js';
-import { YYTOKEN } from './SQLParser.js';
+import { YYTOKEN } from '../tools/SQLParser.js';
 import fs from 'fs';
 let rules: LexerRule<YYTOKEN>[] = [
   {reg: '[ \t\n\r]+',handler: function (text) {return {yytext: 'space',type: 'space',value: text,};},}, //prettier-ignore
@@ -15,12 +15,14 @@ let rules: LexerRule<YYTOKEN>[] = [
   {reg: '=',handler: function (text) {return {yytext: '=',type: text,value: text,};},}, // prettier-ignore
   {reg: '>',handler: function (text) {return {yytext: '>',type: text,value: text,};},}, // prettier-ignore
   {reg: '>=',handler: function (text) {return {yytext: '>=',type: text,value: text,};},}, // prettier-ignore
+  {reg: '%',handler: function (text) {return {yytext: '%',type: text,value: text,};},}, // prettier-ignore
 
   {reg: '\\*',handler: function (text) {return {yytext: '*',type: text,value: text,};},}, // prettier-ignore
   {reg: '\\.',handler: function (text) {return {yytext: '.',type: text,value: text,};},}, // prettier-ignore
   {reg: '\\+',handler: function (text) {return {yytext: '\\+',type: text,value: text,};},}, // prettier-ignore
   {reg: '\\-',handler: function (text) {return {yytext: '\\-',type: text,value: text,};},}, // prettier-ignore
   {reg: '\\*',handler: function (text) {return {yytext: '\\*',type: text,value: text,};},}, // prettier-ignore
+  
   {reg: '/',handler: function (text) {return {yytext: '/',type: text,value: text,};},}, // prettier-ignore
   {reg: '\\(',handler: function (text) {return {yytext: '\\(',type: text,value: text,};},}, // prettier-ignore
   {reg: '\\)',handler: function (text) {return {yytext: '\\)',type: text,value: text,};},}, // prettier-ignore
@@ -99,3 +101,4 @@ for (let k in functionStrCache) {
 }
 
 fs.writeFileSync('src/tools/lexicalRules.ts', `export default ${serializedDfa};`);
+console.log('lexcial geneate end');

@@ -5,9 +5,35 @@ export interface FieldType {
   name: string;
   type: 'string' | 'number' | 'bigint' | 'boolean' | 'symbol' | 'undefined' | 'object' | 'function';
 }
-let udf: { [key: string]: (...args: (valueType | undefined)[]) => valueType | undefined } = {
-  concat: (...args: (valueType | undefined)[]): valueType | undefined => {
-    return args.reduce((p, c) => `${p},${c}`);
+let udf: {
+  [key: string]:
+    | {
+        type: 'normal';
+        handler: (...args: (valueType | undefined)[]) => valueType | undefined;
+      }
+    | {
+        type: 'aggregate';
+        handler: (list: (valueType | undefined)[]) => valueType | undefined;
+      };
+} = {
+  concat: {
+    type: 'normal',
+    handler: (...args) => {
+      return args.reduce((p, c) => `${p}${c}`);
+    },
+  },
+  count: {
+    type: 'aggregate',
+    handler: (list) => {
+      return list.length;
+    },
+  },
+  sum: {
+    type: 'aggregate',
+    handler: (list) => {
+      assert(typeof list[0] == 'number', 'sum只能累加数字');
+      return list.reduce((p, c) => <number>p + <number>c);
+    },
   },
 };
 export class DataSet<T extends { [key: string]: any }> {
@@ -29,9 +55,26 @@ export class DataSet<T extends { [key: string]: any }> {
 
   //深度遍历执行
   private execExp(exp: ExpNode, row: T): ExpNode {
+    /**
+     * 直接从缓存结果返回数据(比如用group by做了一次函数计算),
+     * select
+     *  left(name,4),//这里直接使用group by的计算结果
+     *  left(name,4)+'a' //这里可以使用前一列的计算结果
+     * from
+     *  table
+     * group by
+     *  left(name,4)
+     */
+    if (row[exp.targetName] != undefined) {
+      return {
+        op: 'immediate_val',
+        targetName: exp.targetName,
+        value: row[exp.targetName],
+      };
+    }
+
     let { op, children } = exp;
     let result: valueType | undefined = undefined;
-    let targetName = exp.targetName;
     let l_Child: ExpNode;
     let r_Child: ExpNode;
     switch (op) {
@@ -45,16 +88,25 @@ export class DataSet<T extends { [key: string]: any }> {
         let fieldName = exp.value as string;
         let idx = this.schemaIdx[fieldName];
         if (idx == undefined) {
-          throw `Invalid field name: ${fieldName}`;
+          throw `Invalid field name: ${fieldName},if you select a field before group,the field must in group keys`;
         }
         result = row[idx];
         break;
       case 'getfield':
         let fieldName2 = exp.value as string;
         if (row[fieldName2] == undefined) {
-          throw `Table: ${this.name} does not have field: ${fieldName2}`;
+          throw `Table: ${this.name} does not have field: ${fieldName2},if you select a field before group,the field must in group keys`;
         }
         result = row[fieldName2];
+        break;
+      case 'mod':
+        l_Child = this.execExp(children![0], row);
+        r_Child = this.execExp(children![1], row);
+        if (typeof l_Child.value === 'number' && typeof r_Child.value === 'number') {
+          result = l_Child.value! % r_Child.value!;
+        } else {
+          throw 'Unsupported type';
+        }
         break;
       case 'add':
         l_Child = this.execExp(children![0], row);
@@ -69,7 +121,7 @@ export class DataSet<T extends { [key: string]: any }> {
         l_Child = this.execExp(children![0], row);
         r_Child = this.execExp(children![1], row);
         if (typeof l_Child.value === 'number' && typeof r_Child.value === 'number') {
-          result = l_Child.value! - l_Child.value!;
+          result = l_Child.value! - r_Child.value!;
         } else {
           throw 'Unsupported type';
         }
@@ -152,11 +204,30 @@ export class DataSet<T extends { [key: string]: any }> {
         if (udf[fun_name] == undefined) {
           throw `未定义函数:${fun_name}`;
         }
-        let args: (valueType | undefined)[] = [];
-        for (let c of children!) {
-          args.push(this.execExp(c, row).value);
+        if (udf[fun_name].type == 'aggregate') {
+          if (row['@totalGroupValues'] == undefined) {
+            throw `还没有group by的表不能使用聚合函数${fun_name}`;
+          } else if (children!.length > 1) {
+            throw `聚合函数目前只支持0个或者1个参数`;
+          } else {
+            let list = [] as valueType[];
+            if (children!.length == 1) {
+              for (let subLine of row['@totalGroupValues']) {
+                let arg = this.execExp(children![0], subLine).value!;
+                list.push(arg);
+              }
+              result = udf[fun_name].handler(list);
+            } else {
+              result = udf[fun_name].handler(row['@totalGroupValues']);
+            }
+          }
+        } else {
+          let args: (valueType | undefined)[] = [];
+          for (let c of children!) {
+            args.push(this.execExp(c, row).value);
+          }
+          result = udf[fun_name].handler(...args);
         }
-        result = udf[fun_name](...args);
         break;
       default:
         throw `Undefined opcode: ${op}`;
@@ -165,7 +236,7 @@ export class DataSet<T extends { [key: string]: any }> {
     return {
       op: 'immediate_val',
       value: result,
-      targetName,
+      targetName: exp.targetName,
     };
   }
   public select(exps: ExpNode[]): DataSet<any> {
@@ -192,5 +263,108 @@ export class DataSet<T extends { [key: string]: any }> {
       }
     }
     return new DataSet(ret, this.name);
+  }
+  public group(exps: ExpNode[]) {
+    let ds = [] as any[];
+    let groupKeys = new Set<string>();
+    for (let i = 0; i < this.data.length; i++) {
+      let row = this.data[i];
+      let tmpRow = { ...row } as any;
+      let groupValues = [] as valueType[];
+      for (let exp of exps) {
+        let cell = this.execExp(exp, row);
+
+        //只在第一行判断group key
+        if (i == 0) {
+          if (groupKeys.has(cell.targetName!)) {
+            throw `group重复属性:${cell.targetName!}`;
+          }
+          groupKeys.add(cell.targetName);
+        }
+
+        tmpRow[cell.targetName!] = cell.value!;
+        groupValues.push(cell.value!);
+      }
+      tmpRow['@totalGroupValues'] = groupValues.map((item) => item.toString()).reduce((p, c) => p + ',' + c);
+      ds.push(tmpRow);
+    }
+
+    let groupObj = Object.groupBy(ds, (row) => row['@totalGroupValues']);
+    let groupDs = [] as any[];
+    for (let gk in groupObj) {
+      let tmpRow = {} as any;
+      let group = groupObj[gk]!;
+      for (let k of groupKeys) {
+        tmpRow[k] = group[0][k];
+      }
+      tmpRow['@totalGroupValues'] = group;
+      groupDs.push(tmpRow);
+    }
+
+    return new DataSet(groupDs, this.name);
+  }
+  public orderBy(exps: ExpNode[]) {
+    let ds = [] as any[];
+    let orderKeys = [] as { name: string; order: 'asc' | 'desc' }[];
+    for (let i = 0; i < this.data.length; i++) {
+      let row = this.data[i];
+      let tmpRow = { ...row } as any;
+      for (let exp of exps) {
+        let ret = this.execExp(exp.children![0], row);
+        if (exp.order !== 'asc') {
+        } else {
+        }
+        let orderKey = exp.targetName;
+        tmpRow[orderKey] = ret.value;
+
+        //只在第一行判断group key
+        if (i == 0) {
+          orderKeys.push({
+            name: orderKey,
+            order: exp.order!,
+          });
+        }
+      }
+      ds.push(tmpRow);
+    }
+    let compare = (a: any, b: any): number => {
+      for (let k of orderKeys) {
+        if (k.order == 'asc') {
+          if (a[k.name] < b[k.name]) {
+            return -1;
+          } else if (a[k.name] > b[k.name]) {
+            return 1;
+          }
+        } else {
+          if (a[k.name] < b[k.name]) {
+            return 1;
+          } else if (a[k.name] > b[k.name]) {
+            return -1;
+          }
+        }
+      }
+      return 0;
+    };
+    ds.sort(compare);
+    return new DataSet(ds, this.name);
+  }
+  public limit(exp: ExpNode): DataSet<any> {
+    let n1 = exp.limit![0];
+    let n2 = exp.limit![1];
+    let ds = this.data;
+    if (n2 == undefined) {
+      ds = ds.slice(0, n1);
+    } else {
+      ds = ds.slice(n1 - 1, n2);
+    }
+    return new DataSet(ds, this.name);
+  }
+  public leftJoin(rt: DataSet<any>, exp: ExpNode): DataSet<any> {
+    if(exp.op=='eq'){//确认下面只有一层,而且是getField或者是getTableField
+
+    }else{
+      console.warn(`非等值连接得上笛卡尔积，你可以考虑换成等值连接`);
+    }
+    throw 'unimpliment';
   }
 }
