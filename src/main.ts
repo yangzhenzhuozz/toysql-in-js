@@ -17,13 +17,14 @@ from
 `;
 let code2 = `
 select
-    id as c1,
-    concat(name),
-    name
+    t1.id,
+    1=1,
+    id,
+    name,
+    concat(id,name,1)
 from
     t1
-where
-    id=2
+where id=1 or name='danny'
 `;
 
 let arr: { id: number; name: string }[] = [

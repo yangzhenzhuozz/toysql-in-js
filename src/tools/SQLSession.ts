@@ -13,11 +13,11 @@ export class SQLSession {
   }
   public registTableView(dataset: DataSet<any>) {
     let tableName = dataset.name;
-    assert(tableName != undefined,'必须注册一个有名字的表');
+    assert(tableName != undefined, '必须注册一个有名字的表');
     if (this._tableView[tableName] != undefined) {
       throw `表:${name}已经存在`;
     } else {
-      this._tableView[tableName] = new DataSet(dataset.data);
+      this._tableView[tableName] = dataset;
     }
   }
   public sql(src: string): DataSet<any> {

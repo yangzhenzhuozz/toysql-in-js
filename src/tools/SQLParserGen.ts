@@ -102,7 +102,7 @@ function gen() {
             let id = $[2] as string;
             return {
               op: 'alias',
-              targetName: id,
+              targetName: `${exp.targetName} as ${id}`,
               children: [exp],
             };
           },
@@ -161,16 +161,73 @@ function gen() {
           },
         },
       },
-      { 'group_clause:': {} },
-      { 'group_clause:group by group_list having_clause': {} },
-      { 'group_list:group_item , group_list': {} },
-      { 'group_list:group_item': {} },
-      { 'group_item:exp': {} }, //这里可能会导致性能问题，如:from t group by f1(t.v1) select f1(t.v1)，甚至是非常复杂的表达式计算，实在没时间做优化了
+      {
+        'group_clause:': {
+          action: function () {
+            //什么也不做
+          },
+        },
+      },
+      {
+        'group_clause:group by group_list having_clause': {
+          action: function ($): ExpNode {
+            let group_list = $[2] as ExpNode[];
+            let having_clause = $[3] as ExpNode | undefined;
+            let targetName = '';
+            for (let i = 0; i < group_list.length; i++) {
+              if (i == 0) {
+                targetName += group_list[i].targetName;
+              } else {
+                targetName += ',' + group_list[i].targetName;
+              }
+            }
+            if (having_clause != undefined) {
+              targetName += 'having ' + having_clause?.targetName;
+              return {
+                op: 'group_having',
+                children: [...group_list, having_clause],
+                targetName: targetName,
+              };
+            } else {
+              return {
+                op: 'group',
+                children: [...group_list],
+                targetName: targetName,
+              };
+            }
+          },
+        },
+      },
+      {
+        'group_list:group_list , group_item': {
+          action: function ($): ExpNode[] {
+            let group_list = $[0] as ExpNode[];
+            let group_item = $[2] as ExpNode;
+            return [...group_list, group_item];
+          },
+        },
+      },
+      {
+        'group_list:group_item': {
+          action: function ($): ExpNode[] {
+            let group_item = $[0] as ExpNode;
+            return [group_item];
+          },
+        },
+      },
+      {
+        'group_item:exp': {
+          action: function ($): ExpNode {
+            let group_item = $[0] as ExpNode;
+            return group_item;
+          },
+        },
+      }, //这里可能会导致性能问题，如:from t group by f1(t.v1) select f1(t.v1)，甚至是非常复杂的表达式计算，实在没时间做优化了
       { 'having_clause:': {} },
       { 'having_clause:having exp': {} },
       { 'order_clause:': {} },
       { 'order_clause:order by order_by_list': {} },
-      { 'order_by_list:order_by_item , order_by_list': {} },
+      { 'order_by_list:order_by_list , order_by_item': {} },
       { 'order_by_list:order_by_item order_key': {} },
       { 'order_key:': {} },
       { 'order_key:asc': {} },
@@ -184,9 +241,9 @@ function gen() {
           action: function ($): ExpNode {
             let n = $[0] as number;
             return {
-              op: 'immediate_num',
+              op: 'immediate_val',
               value: n,
-              children: [],
+              targetName: n.toString(),
             };
           },
         },
@@ -196,9 +253,9 @@ function gen() {
           action: function ($): ExpNode {
             let n = $[0] as string;
             return {
-              op: 'immediate_string',
+              op: 'immediate_val',
               value: n,
-              children: [],
+              targetName: n,
             };
           },
         },
@@ -211,6 +268,7 @@ function gen() {
             return {
               op: 'getTableField',
               value: `${tableName}.${fieldName}`,
+              targetName: `${tableName}.${fieldName}`,
             };
           },
         },
@@ -222,6 +280,7 @@ function gen() {
             return {
               op: 'getfield',
               value: `${fieldName}`,
+              targetName: fieldName,
             };
           },
         },
@@ -234,6 +293,7 @@ function gen() {
             return {
               op: 'add',
               children: [e1, e2],
+              targetName: `${e1.targetName} + ${e2.targetName}`,
             };
           },
         },
@@ -246,6 +306,7 @@ function gen() {
             return {
               op: 'sub',
               children: [e1, e2],
+              targetName: `${e1.targetName} - ${e2.targetName}`,
             };
           },
         },
@@ -258,6 +319,7 @@ function gen() {
             return {
               op: 'mul',
               children: [e1, e2],
+              targetName: `${e1.targetName} * ${e2.targetName}`,
             };
           },
         },
@@ -270,6 +332,7 @@ function gen() {
             return {
               op: 'lt',
               children: [e1, e2],
+              targetName: `${e1.targetName} < ${e2.targetName}`,
             };
           },
         },
@@ -282,6 +345,7 @@ function gen() {
             return {
               op: 'le',
               children: [e1, e2],
+              targetName: `${e1.targetName} <= ${e2.targetName}`,
             };
           },
         },
@@ -294,6 +358,7 @@ function gen() {
             return {
               op: 'gt',
               children: [e1, e2],
+              targetName: `${e1.targetName} > ${e2.targetName}`,
             };
           },
         },
@@ -306,6 +371,7 @@ function gen() {
             return {
               op: 'ge',
               children: [e1, e2],
+              targetName: `${e1.targetName} >= ${e2.targetName}`,
             };
           },
         },
@@ -318,6 +384,7 @@ function gen() {
             return {
               op: 'eq',
               children: [e1, e2],
+              targetName: `${e1.targetName} = ${e2.targetName}`,
             };
           },
         },
@@ -330,6 +397,7 @@ function gen() {
             return {
               op: 'div',
               children: [e1, e2],
+              targetName: `${e1.targetName} / ${e2.targetName}`,
             };
           },
         },
@@ -337,7 +405,9 @@ function gen() {
       {
         'exp:( exp )': {
           action: function ($): ExpNode {
-            return $[1] as ExpNode;
+            let exp = $[1] as ExpNode;
+            exp.targetName = `(${exp.targetName})`;
+            return exp;
           },
         },
       },
@@ -349,6 +419,7 @@ function gen() {
             return {
               op: 'and',
               children: [e1, e2],
+              targetName: `${e1.targetName} and ${e2.targetName}`,
             };
           },
         },
@@ -361,6 +432,7 @@ function gen() {
             return {
               op: 'or',
               children: [e1, e2],
+              targetName: `${e1.targetName} or ${e2.targetName}`,
             };
           },
         },
@@ -374,6 +446,7 @@ function gen() {
             return {
               op: 'if-else',
               children: [condition, exp1, exp2],
+              targetName: `if ${condition.targetName} then ${exp1.targetName} else ${exp2.targetName}`,
             };
           },
         },
@@ -385,9 +458,14 @@ function gen() {
             let exp1 = $[3] as ExpNode;
             let elseif_list = $[4] as ExpNode[];
             let else_exp = $[6] as ExpNode;
+            let elseif_list_name = '';
+            for (let i = 0; i < elseif_list.length; i += 2) {
+              elseif_list_name += `elseif ${elseif_list[i].targetName} then ${elseif_list[i + 1].targetName}`;
+            }
             return {
               op: 'if-elseif-else',
               children: [condition, exp1, ...elseif_list, else_exp],
+              targetName: `if ${condition.targetName} then ${exp1.targetName} ${elseif_list_name} else ${else_exp.targetName}`,
             };
           },
         },
@@ -420,10 +498,21 @@ function gen() {
       {
         'exp:id ( argu_list )': {
           action: function ($): ExpNode {
+            let id = $[0] as string;
+            let args = $[2] as ExpNode[];
+            let argNames = '';
+            for (let i = 0; i < args.length; i++) {
+              if (i == 0) {
+                argNames += args[i].targetName;
+              } else {
+                argNames += ',' + args[i].targetName;
+              }
+            }
             return {
               op: 'call',
-              value: $[0] as string,
-              children: $[2] as ExpNode[],
+              value: id,
+              children: args,
+              targetName: `${id}(${argNames})`,
             };
           },
         },
