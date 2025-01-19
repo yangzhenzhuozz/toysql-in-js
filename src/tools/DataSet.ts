@@ -1,11 +1,12 @@
 import { assert } from './assert.js';
 import { ExpNode, valueType } from './ExpTree.js';
+import { SQLSession } from './SQLSession.js';
 
 export interface FieldType {
   name: string;
   type: 'string' | 'number' | 'bigint' | 'boolean' | 'symbol' | 'undefined' | 'object' | 'function';
 }
-type UDF = {
+export type UDF = {
   [key: string]:
     | {
         type: 'normal';
@@ -16,30 +17,11 @@ type UDF = {
         handler: (list: (valueType | undefined)[]) => valueType | undefined;
       };
 };
-let udf: UDF = {
-  concat: {
-    type: 'normal',
-    handler: (...args) => {
-      return args.reduce((p, c) => `${p}${c}`);
-    },
-  },
-  count: {
-    type: 'aggregate',
-    handler: (list) => {
-      return list.length;
-    },
-  },
-  sum: {
-    type: 'aggregate',
-    handler: (list) => {
-      assert(typeof list[0] == 'number', 'sum只能累加数字');
-      return list.reduce((p, c) => <number>p + <number>c);
-    },
-  },
-};
+
 export class DataSet<T extends { [key: string]: any }> {
   public data: T[] = [];
   public name?: string;
+  public session: SQLSession | undefined;
 
   /**
    * 通过表名.字段形式索引时，得到在数据集中的真实id，假设当前表名是t1，数据集里面的真实记录是[{id:1,name:john}],
@@ -67,11 +49,14 @@ export class DataSet<T extends { [key: string]: any }> {
     }
     return tableNameToField;
   }
-  public constructor(arr: T[], name?: string) {
+  public constructor(arr: T[], name?: string, session?: SQLSession) {
     this.name = name;
     this.data = arr;
     if (name != undefined) {
       this.tableNameToField = this.createTableNameToField(arr, name);
+    }
+    if (session != undefined) {
+      this.session = session;
     }
   }
   //笛卡尔积
@@ -250,10 +235,10 @@ export class DataSet<T extends { [key: string]: any }> {
         break;
       case 'call':
         let fun_name = exp.value as string;
-        if (udf[fun_name] == undefined) {
+        if (this.session!.udf[fun_name] == undefined) {
           throw `未定义函数:${fun_name}`;
         }
-        if (udf[fun_name].type == 'aggregate') {
+        if (this.session!.udf[fun_name].type == 'aggregate') {
           if (row['@totalGroupValues'] == undefined) {
             throw `还没有group by的表不能使用聚合函数${fun_name}`;
           } else if (children!.length > 1) {
@@ -265,9 +250,9 @@ export class DataSet<T extends { [key: string]: any }> {
                 let arg = this.execExp(children![0], subLine).value!;
                 list.push(arg);
               }
-              result = udf[fun_name].handler(list);
+              result = this.session!.udf[fun_name].handler(list);
             } else {
-              result = udf[fun_name].handler(row['@totalGroupValues']);
+              result = this.session!.udf[fun_name].handler(row['@totalGroupValues']);
             }
           }
         } else {
@@ -275,7 +260,7 @@ export class DataSet<T extends { [key: string]: any }> {
           for (let c of children!) {
             args.push(this.execExp(c, row).value);
           }
-          result = udf[fun_name].handler(...args);
+          result = this.session!.udf[fun_name].handler(...args);
         }
         break;
       default:
@@ -365,7 +350,7 @@ export class DataSet<T extends { [key: string]: any }> {
     return ret;
   }
   public alias(name: string): DataSet<T> {
-    return new DataSet(this.data, name);
+    return new DataSet(this.data, name, this.session);
   }
   public select(exps: ExpNode[]): DataSet<any> {
     let ret = [] as any[];
@@ -380,9 +365,9 @@ export class DataSet<T extends { [key: string]: any }> {
       }
       ret.push(tmpRow);
     }
-    return new DataSet(ret, this.name);
+    return new DataSet(ret, this.name, this.session);
   }
-  public where(exp: ExpNode) {
+  public where(exp: ExpNode): DataSet<T> {
     let ret = [] as any[];
     for (let row of this.data) {
       let condition = this.execExp(exp, row);
@@ -390,9 +375,9 @@ export class DataSet<T extends { [key: string]: any }> {
         ret.push(row);
       }
     }
-    return new DataSet(ret, this.name);
+    return new DataSet(ret, this.name, this.session);
   }
-  public group(exps: ExpNode[]) {
+  public group(exps: ExpNode[]): DataSet<any> {
     let ds = [] as any[];
     let groupKeys = new Set<string>();
     for (let i = 0; i < this.data.length; i++) {
@@ -434,7 +419,7 @@ export class DataSet<T extends { [key: string]: any }> {
       groupDs.push(tmpRow);
     }
 
-    return new DataSet(groupDs, this.name);
+    return new DataSet(groupDs, this.name, this.session);
   }
   public orderBy(exps: ExpNode[]) {
     let ds = [] as any[];
@@ -479,7 +464,7 @@ export class DataSet<T extends { [key: string]: any }> {
       return 0;
     };
     ds.sort(compare);
-    return new DataSet(ds, this.name);
+    return new DataSet(ds, this.name, this.session);
   }
   public limit(exp: ExpNode): DataSet<any> {
     let n1 = exp.limit![0];
@@ -490,7 +475,7 @@ export class DataSet<T extends { [key: string]: any }> {
     } else {
       ds = ds.slice(n1 - 1, n2);
     }
-    return new DataSet(ds, this.name);
+    return new DataSet(ds, this.name, this.session);
   }
   public leftJoin(other: DataSet<any>, exp: ExpNode): DataSet<any> {
     let retArr = [] as any[];
@@ -556,7 +541,7 @@ export class DataSet<T extends { [key: string]: any }> {
           k2: f2.id,
           duplicateKey,
         });
-        let ret = new DataSet(retArr);
+        let ret = new DataSet(retArr, undefined, this.session);
         ret.tableNameToField = { ...this.createTableNameToField(this.data, this.name, duplicateKey), ...this.createTableNameToField(other.data, other.name, duplicateKey) };
         return ret;
       }
@@ -564,7 +549,7 @@ export class DataSet<T extends { [key: string]: any }> {
     //只有左右表各直接选择一个字段进行等值连接才能优化
     console.warn(`只有从两个表各取一个字段等值连接有优化,其他情况使用笛卡尔积连接，请考虑优化`);
     retArr = this.cross(this.data, other.data, this.name, other.name, duplicateKey);
-    let crossResult = new DataSet(retArr);
+    let crossResult = new DataSet(retArr, undefined, this.session);
     let result = crossResult.where(exp);
     result.name = `@crossResult`;
     result.tableNameToField = { ...this.createTableNameToField(this.data, this.name, duplicateKey), ...this.createTableNameToField(other.data, other.name, duplicateKey) };
