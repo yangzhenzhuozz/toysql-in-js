@@ -127,7 +127,7 @@ function gen() {
             let id = $[2] as string;
             return {
               op: 'alias',
-              targetName: `${exp.targetName} as ${id}`,
+              targetName: id, //有alias时，强制改名
               children: [exp],
             };
           },
@@ -389,7 +389,7 @@ function gen() {
             return {
               op: 'immediate_val',
               value: n,
-              targetName: n,
+              targetName: `${JSON.stringify(n)}`,
             };
           },
         },
@@ -607,7 +607,7 @@ function gen() {
             let else_exp = $[6] as ExpNode;
             let elseif_list_name = '';
             for (let i = 0; i < elseif_list.length; i += 2) {
-              elseif_list_name += `elseif ${elseif_list[i].targetName} then ${elseif_list[i + 1].targetName}`;
+              elseif_list_name += ` elseif ${elseif_list[i].targetName} then ${elseif_list[i + 1].targetName}`;
             }
             return {
               op: 'if-elseif-else',

@@ -1,6 +1,7 @@
 import { DataSet } from './tools/DataSet.js';
 import { SQLSession } from './tools/SQLSession.js';
 let testCase: { [key: string]: string } = {
+  code0:`select * from t1`,
   code1: `
 select
     concat('a','a\\'b'),
@@ -122,9 +123,11 @@ from
 let arr = [
   { id: 1, gender: '男', name: 'john', score: 10 },
   { id: 2, gender: '女', name: 'kelly', score: 11 },
+  { id: 12, gender: '女', name: 'danny', score: 11 },
 ];
 let arr2 = [
   { id: 2, idx: 2, score2: 15 },
+  { id: 2, idx: 2, score2: 99 },
   { id: 3, idx: 3, score2: 17 },
 ];
 
@@ -138,7 +141,7 @@ session.registTableView(ds);
 session.registTableView(ds2);
 
 for (let k in testCase) {
-  console.log(`开始执行:${k}`);
+  console.log(`开始执行:${testCase[k]}`);
   console.time('Execution Time');
   let ret = session.sql(testCase[k]);
   console.table(ret.data);

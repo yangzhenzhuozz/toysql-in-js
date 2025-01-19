@@ -234,7 +234,7 @@ export class DataSet<T extends { [key: string]: any }> {
         break;
       case 'if-elseif-else':
         for (let i = 0; i < children!.length - 2; i += 2) {
-          let condition = (children![i], row);
+          let condition = this.execExp(children![i], row);
           if (condition.value!) {
             result = this.execExp(children![i + 1], row).value;
             break;
