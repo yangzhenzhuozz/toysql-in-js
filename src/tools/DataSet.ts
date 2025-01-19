@@ -412,8 +412,13 @@ export class DataSet<T extends { [key: string]: any }> {
       tmpRow['@totalGroupValues'] = groupValues.map((item) => item.toString()).reduce((p, c) => p + ',' + c);
       ds.push(tmpRow);
     }
-
-    let groupObj = Object.groupBy(ds, (row) => row['@totalGroupValues']);
+    let groupBy = (array: any[], key: string) => {
+      return array.reduce((result, currentValue) => {
+        (result[currentValue[key]] = result[currentValue[key]] || []).push(currentValue);
+        return result;
+      }, {});
+    };
+    let groupObj = groupBy(ds, '@totalGroupValues');
     let groupDs = [] as any[];
     for (let gk in groupObj) {
       let tmpRow = {} as any;

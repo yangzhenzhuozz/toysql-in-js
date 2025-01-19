@@ -4,3 +4,4 @@ src/dfaData.json
 src/tools/SQLParser.ts
 src/tools/lexicalRules.ts
 package-lock.json
+out.txt

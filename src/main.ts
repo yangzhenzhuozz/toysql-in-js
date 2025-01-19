@@ -123,7 +123,7 @@ from
 let arr = [
   { id: 1, gender: '男', name: 'john', score: 10 },
   { id: 2, gender: '女', name: 'kelly', score: 11 },
-  { id: 12, gender: '女', name: 'danny', score: 11 },
+  { id: 12, gender: '女', name: 'danny', score: 15 },
 ];
 let arr2 = [
   { id: 2, idx: 2, score2: 15 },
