@@ -42,7 +42,7 @@ let rules: LexerRule<YYTOKEN>[] = [
   {reg: 'having',handler: function (text) {return {yytext: 'having',type: text,value: text,};},}, // prettier-ignore
   {reg: 'limit',handler: function (text) {return {yytext: 'limit',type: text,value: text,};},}, // prettier-ignore
   // prettier-ignore
-  {reg: '[_a-z][a-zA-Z0-9]*',handler: function (text) {return {yytext: text,type: 'id',value: text,};},}, //id的优先级最低,避免把关键字识别成id
+  {reg: '[_a-zA-Z][a-zA-Z0-9]*',handler: function (text) {return {yytext: text,type: 'id',value: text,};},}, //id的优先级最低,避免把关键字识别成id
   {
     reg: '[0-9]+\\.[0-9]+',
     handler: function (text) {
