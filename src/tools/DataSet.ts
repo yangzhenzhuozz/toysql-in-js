@@ -32,6 +32,18 @@ export class DataSet<T extends { [key: string]: any }> {
       [key: string]: string;
     };
   } = {};
+  private fiels: Set<string> = new Set();
+  public constructor(arr: T[], name?: string, session?: SQLSession) {
+    this.name = name;
+    this.data = arr;
+    this.fiels = new Set(Object.keys(arr[0]));
+    if (name != undefined) {
+      this.tableNameToField = this.createTableNameToField(arr, name);
+    }
+    if (session != undefined) {
+      this.session = session;
+    }
+  }
 
   //用于创建t1.c1 => c1 t2.id=>t2.id 的映射(id在两个表中都有,c1只在t1中有,所以映射结果不同)
   private createTableNameToField(arr: any[], t: string, duplicateKey?: Set<string>) {
@@ -48,16 +60,6 @@ export class DataSet<T extends { [key: string]: any }> {
       }
     }
     return tableNameToField;
-  }
-  public constructor(arr: T[], name?: string, session?: SQLSession) {
-    this.name = name;
-    this.data = arr;
-    if (name != undefined) {
-      this.tableNameToField = this.createTableNameToField(arr, name);
-    }
-    if (session != undefined) {
-      this.session = session;
-    }
   }
   //笛卡尔积
   private cross(f1: any[], f2: any, t1: string, t2: string, duplicateKey: Set<string>) {
@@ -117,14 +119,14 @@ export class DataSet<T extends { [key: string]: any }> {
         break;
       case 'getTableField':
         let [tableName, fieldName] = (<string>exp.value).split('.');
-        if (row[this.tableNameToField[tableName][fieldName]] == undefined) {
+        if (this.tableNameToField[tableName][fieldName] == undefined) {
           throw `Invalid field name: ${tableName}.${fieldName},if you select a field before group,the field must in group keys`;
         }
         result = row[this.tableNameToField[tableName][fieldName]];
         break;
       case 'getfield':
         let fieldName2 = exp.value as string;
-        if (row[fieldName2] == undefined) {
+        if (!this.fiels.has(fieldName2)) {
           throw `Table: ${this.name} does not have field: ${fieldName2}`;
         }
         result = row[fieldName2];
@@ -266,7 +268,6 @@ export class DataSet<T extends { [key: string]: any }> {
       default:
         throw `Undefined opcode: ${op}`;
     }
-    assert(result != undefined, '有bug,没有返回正确的值');
     return {
       op: 'immediate_val',
       value: result,
@@ -419,7 +420,9 @@ export class DataSet<T extends { [key: string]: any }> {
       groupDs.push(tmpRow);
     }
 
-    return new DataSet(groupDs, this.name, this.session);
+    let ret = new DataSet(groupDs, this.name, this.session);
+    ret.tableNameToField = this.tableNameToField;
+    return ret;
   }
   public orderBy(exps: ExpNode[]) {
     let ds = [] as any[];

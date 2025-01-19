@@ -3,11 +3,10 @@ import { assert } from '../tools/assert.js';
 
 let sql = `
 select
-    max(score) as max
+  t1.id,max(B.score2)
 from
-    t1 as cc
-group by
-  1
+  t1 left join t2 as B on t1.id=B.id
+group by t1.id
 `;
 let arr = [
   { id: 1, gender: '男', name: 'john', score: 10 },
@@ -29,7 +28,6 @@ let session = new SQLSession();
 session.reisgerUDF('max', {
   type: 'aggregate',
   handler: function (list: number[]) {
-    assert(typeof list[0] == 'number', 'max只能用于数字');
     return Math.max(...list);
   },
 });
