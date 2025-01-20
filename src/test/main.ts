@@ -1,21 +1,21 @@
 import { DataSet, SQLSession } from '../main.js';
-import { assert } from '../tools/assert.js';
 
 let sql = `
 select
-  t1.id,max(score)
+  t1.id,max(score),t1.id as v1
 from
-  t1 left join t2 as B on t1.id=B.id
+  t1 left join t2 as B on t1.id=B.idx
 group by t1.id
+order by max(score)
 `;
 let arr = [
   { id: 1, name: '张三' },
   { id: 2, name: '李四' },
 ];
 let arr2 = [
-  { id: 2, score: 5 },
-  { id: 2, score: 8 },
-  { id: 3, score: 10 },
+  { idx: 2, score: 5 },
+  { idx: 2, score: 8 },
+  { idx: 3, score: 10 },
 ];
 
 //创建两个数据集

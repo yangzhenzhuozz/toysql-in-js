@@ -33,14 +33,10 @@ export class DataSet<T extends { [key: string]: any }> {
     };
   } = {};
 
-  private fiels: Set<string> = new Set(); //属性列表
-  private groupfiels: Set<string> = new Set(); //聚合之后的属性列表
-  private useGroudFields = false;
-
   public constructor(arr: T[], name?: string, session?: SQLSession) {
     this.name = name;
     this.data = arr;
-    this.fiels = new Set(Object.keys(arr[0]));
+    // this.fiels = new Set(Object.keys(arr[0]));
     if (name != undefined) {
       this.tableNameToField = this.createTableNameToField(arr, name);
     }
@@ -57,7 +53,7 @@ export class DataSet<T extends { [key: string]: any }> {
       };
     } = { [t]: {} };
     for (let k in arr[0]) {
-      if (duplicateKey == undefined || !duplicateKey.has(k)) {
+      if (duplicateKey === undefined || !duplicateKey.has(k)) {
         tableNameToField[t][k] = k;
       } else {
         tableNameToField[t][k] = `${this.name}.${k}`;
@@ -123,18 +119,22 @@ export class DataSet<T extends { [key: string]: any }> {
         break;
       case 'getTableField':
         let [tableName, fieldName] = (<string>exp.value).split('.');
-        if (this.tableNameToField[tableName][fieldName] == undefined) {
-          throw `Invalid field name: ${tableName}.${fieldName},if you select a field before group,the field must in group keys`;
+        if (this.tableNameToField[tableName] === undefined) {
+          throw `无效表名:${tableName}`;
         }
         result = row[this.tableNameToField[tableName][fieldName]];
+        exp.targetName = fieldName; //强制修改targetName给group使用
+        if (result === undefined) {
+          throw `无效属性: ${tableName}.${fieldName},如果是在group之后select,请使用group key中的字段值`;
+        }
+
         break;
       case 'getfield':
         let fieldName2 = exp.value as string;
-        //如果是搜索聚合属性，则切换搜索位置
-        if ((!this.useGroudFields && !this.fiels.has(fieldName2)) || (this.useGroudFields && !this.groupfiels.has(fieldName2))) {
-          throw `Table: ${this.name} does not have field: ${fieldName2}`;
-        }
         result = row[fieldName2];
+        if (result === undefined) {
+          throw `表: ${this.name} 没有字段: ${fieldName2}`;
+        }
         break;
       case 'mod':
         l_Child = this.execExp(children![0], row);
@@ -236,22 +236,21 @@ export class DataSet<T extends { [key: string]: any }> {
             break;
           }
         }
-        if (result == undefined) {
+        if (result === undefined) {
           result = this.execExp(children![children!.length - 1], row).value;
         }
         break;
       case 'call':
         let fun_name = exp.value as string;
-        if (this.session!.udf[fun_name] == undefined) {
+        if (this.session!.udf[fun_name] === undefined) {
           throw `未定义函数:${fun_name}`;
         }
         if (this.session!.udf[fun_name].type == 'aggregate') {
-          if (row['@totalGroupValues'] == undefined) {
+          if (row['@totalGroupValues'] === undefined) {
             throw `还没有group by的表不能使用聚合函数${fun_name}`;
           } else if (children!.length > 1) {
             throw `聚合函数目前只支持0个或者1个参数`;
           } else {
-            this.useGroudFields = true;
             let list = [] as valueType[];
             if (children!.length == 1) {
               for (let subLine of row['@totalGroupValues']) {
@@ -262,7 +261,6 @@ export class DataSet<T extends { [key: string]: any }> {
             } else {
               result = this.session!.udf[fun_name].handler(row['@totalGroupValues']);
             }
-            this.useGroudFields = false; //还原
           }
         } else {
           let args: (valueType | undefined)[] = [];
@@ -361,19 +359,22 @@ export class DataSet<T extends { [key: string]: any }> {
     return new DataSet(this.data, name, this.session);
   }
   public select(exps: ExpNode[]): DataSet<any> {
-    let ret = [] as any[];
+    let arr = [] as any[];
     for (let row of this.data) {
       let tmpRow = {} as any;
       for (let i = 0; i < exps.length; i++) {
         let cell = this.execExp(exps[i], row);
-        if (tmpRow[cell.targetName!] != undefined) {
+        if (tmpRow[cell.targetName!] !== undefined) {
           throw `select重复属性:${cell.targetName!}`;
         }
         tmpRow[cell.targetName!] = cell.value!;
       }
-      ret.push(tmpRow);
+      arr.push(tmpRow);
     }
-    return new DataSet(ret, this.name, this.session);
+    let ds = new DataSet(arr, undefined, this.session);
+    ds.tableNameToField = this.tableNameToField; //limit不更新tableNameToField
+    ds.name = this.name;
+    return ds;
   }
   public where(exp: ExpNode): DataSet<T> {
     let ret = [] as any[];
@@ -383,27 +384,30 @@ export class DataSet<T extends { [key: string]: any }> {
         ret.push(row);
       }
     }
-    return new DataSet(ret, this.name, this.session);
+    let ds = new DataSet(ret, undefined, this.session);
+    ds.tableNameToField = this.tableNameToField; //orderBy不更新tableNameToField
+    ds.name = this.name;
+    return ds;
   }
   public group(exps: ExpNode[]): DataSet<any> {
     let ds = [] as any[];
-    let groupKeys = new Set<string>();
+    let groupKeys = new Set<string>(); //可能是t1.id或者是id
     for (let i = 0; i < this.data.length; i++) {
       let row = this.data[i];
       let tmpRow = { ...row } as any;
       let groupValues = [] as valueType[];
       for (let exp of exps) {
         let cell = this.execExp(exp, row);
-
+        //如果表名或者字段名无效,在execExp这里就抛出异常了
         //只在第一行判断group key
         if (i == 0) {
-          if (groupKeys.has(cell.targetName!)) {
-            throw `group重复属性:${cell.targetName!}`;
+          if (groupKeys.has(cell.targetName)) {
+            throw `group重复属性:${cell.targetName}`;
           }
           groupKeys.add(cell.targetName);
         }
 
-        tmpRow[cell.targetName!] = cell.value!;
+        tmpRow[cell.targetName] = cell.value!;
         groupValues.push(cell.value!);
       }
       tmpRow['@totalGroupValues'] = groupValues.map((item) => item?.toString()).reduce((p, c) => p + ',' + c);
@@ -428,12 +432,12 @@ export class DataSet<T extends { [key: string]: any }> {
     }
 
     let ret = new DataSet(groupDs, this.name, this.session);
-    ret.tableNameToField = this.tableNameToField;
-    ret.groupfiels = new Set([...Object.keys(ret.data[0]['@totalGroupValues'][0])]);
+    let tableNameToField = JSON.parse(JSON.stringify(this.tableNameToField));
+    ret.tableNameToField = tableNameToField; //这里刷新之后可能取到不在group中的字段
     return ret;
   }
   public orderBy(exps: ExpNode[]) {
-    let ds = [] as any[];
+    let arr = [] as any[];
     let orderKeys = [] as { name: string; order: 'asc' | 'desc' }[];
     for (let i = 0; i < this.data.length; i++) {
       let row = this.data[i];
@@ -454,7 +458,7 @@ export class DataSet<T extends { [key: string]: any }> {
           });
         }
       }
-      ds.push(tmpRow);
+      arr.push(tmpRow);
     }
     let compare = (a: any, b: any): number => {
       for (let k of orderKeys) {
@@ -474,19 +478,25 @@ export class DataSet<T extends { [key: string]: any }> {
       }
       return 0;
     };
-    ds.sort(compare);
-    return new DataSet(ds, this.name, this.session);
+    arr.sort(compare);
+    let ds = new DataSet(arr, undefined, this.session);
+    ds.tableNameToField = this.tableNameToField; //orderBy不更新tableNameToField
+    ds.name = this.name;
+    return ds;
   }
   public limit(exp: ExpNode): DataSet<any> {
     let n1 = exp.limit![0];
     let n2 = exp.limit![1];
-    let ds = this.data;
-    if (n2 == undefined) {
-      ds = ds.slice(0, n1);
+    let arr = this.data;
+    if (n2 === undefined) {
+      arr = arr.slice(0, n1);
     } else {
-      ds = ds.slice(n1 - 1, n2);
+      arr = arr.slice(n1 - 1, n2);
     }
-    return new DataSet(ds, this.name, this.session);
+    let ds = new DataSet(arr, undefined, this.session);
+    ds.tableNameToField = this.tableNameToField; //limit不更新tableNameToField
+    ds.name = this.name;
+    return ds;
   }
   public leftJoin(other: DataSet<any>, exp: ExpNode): DataSet<any> {
     let retArr = [] as any[];
@@ -527,7 +537,7 @@ export class DataSet<T extends { [key: string]: any }> {
         table: other.name,
         id: k,
       };
-      if (keyTable[k] == undefined) {
+      if (keyTable[k] === undefined) {
         keyTable[k] = {
           table: other.name!,
           id: k,
@@ -561,9 +571,9 @@ export class DataSet<T extends { [key: string]: any }> {
     console.warn(`只有从两个表各取一个字段等值连接有优化,其他情况使用笛卡尔积连接，请考虑优化`);
     retArr = this.cross(this.data, other.data, this.name, other.name, duplicateKey);
     let crossResult = new DataSet(retArr, undefined, this.session);
-    let result = crossResult.where(exp);
-    result.name = `@crossResult`;
-    result.tableNameToField = { ...this.createTableNameToField(this.data, this.name, duplicateKey), ...this.createTableNameToField(other.data, other.name, duplicateKey) };
-    return result;
+    crossResult.tableNameToField = { ...this.createTableNameToField(this.data, this.name, duplicateKey), ...this.createTableNameToField(other.data, other.name, duplicateKey) };
+    crossResult = crossResult.where(exp);
+    crossResult.name = `@crossResult`;
+    return crossResult;
   }
 }
