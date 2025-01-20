@@ -9,7 +9,11 @@
   "module": "dist/main.js",
   "types": "dist/main.d.ts",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "buildSQLParserGen": "tsc ./src/parserGen/SQLParserGen.ts --outDir ./dist/parserGen --target ESnext --moduleResolution nodenext --module nodenext",
+    "SQLParserGen": "npm run buildSQLParserGen && node ./dist/parserGen/SQLParserGen.js",
+    "buildLexicalDFAGen": "npm run SQLParserGen && tsc ./src/parserGen/LexicalDFAGen.ts --outDir ./dist/parserGen --target ESnext --moduleResolution nodenext --module nodenext",
+    "LexicalDFAGen": "npm run buildLexicalDFAGen && node ./dist/parserGen/LexicalDFAGen.js",
+    "build": "npm run LexicalDFAGen && tsc -p tsconfig.json",
     "pack": "npm run build && npm pack"
   },
   "files": [

@@ -1,6 +1,6 @@
 import { genDFA } from 'tslex';
-import { DFAAutomaton, LexerRule } from 'tslex/dist/automaton.js';
-import { YYTOKEN } from '../tools/SQLParser.js';
+import { LexerRule } from 'tslex/dist/automaton.js';
+import { YYTOKEN } from '../tools/SQLParserDeclare.d.js';
 import fs from 'fs';
 let rules: LexerRule<YYTOKEN>[] = [
   {reg: '[ \t\n\r]+',handler: function (text) {return {yytext: 'space',type: 'space',value: text,};},}, //prettier-ignore
@@ -64,23 +64,8 @@ let rules: LexerRule<YYTOKEN>[] = [
   },
 ];
 let dfa = genDFA(rules);
-function test() {
-  let code = '1\n';
-  dfa.setSource(code);
-  let finished = false;
-  dfa.endHandler = () => {
-    finished = true;
-  };
-  while (1) {
-    let ret = dfa.run();
-    console.log(ret);
-    if (finished) {
-      break;
-    }
-  }
-}
 
-//序列化的时候给函数参数加上string签名，可能会有bug
+//用于在序列化的时候给函数参数加上string签名，这里是replace替换的，可能会有bug
 let functionStrCache: { [key: string]: string } = {};
 let serializedDfa = JSON.stringify(dfa.serialize(), (key, value) => {
   if (typeof value === 'function') {

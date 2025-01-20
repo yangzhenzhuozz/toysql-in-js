@@ -1,8 +1,22 @@
 import fs from 'fs';
 import { Grammar, default as TSCC } from 'tscc';
 import { ExpNode, SelectList } from '../tools/ExpTree.js';
-import { DataSet } from '../tools/DataSet.js';
-import { SQLSession } from '../tools/SQLSession.js';
+
+declare interface DataSet<T> {
+  alias(name: string): DataSet<T>;
+  select(exps: ExpNode[]): DataSet<any>;
+  where(exp: ExpNode): DataSet<T>;
+  group(exps: ExpNode[]): DataSet<any>;
+  orderBy(exps: ExpNode[]): DataSet<any>;
+  limit(exp: ExpNode): DataSet<any>;
+  leftJoin(other: DataSet<any>, exp: ExpNode): DataSet<any>;
+}
+declare interface SQLSession {
+  tableView: {
+    [key: string]: DataSet<any>;
+  };
+}
+
 declare let Context: SQLSession;
 function gen() {
   let grammar: Grammar = {
@@ -704,8 +718,13 @@ function gen() {
   };
   console.log(`一共有${grammar.BNF.length}个BNF`);
   let tscc = new TSCC(grammar, { debug: false, language: 'zh-cn' });
-  let compilerSorce = tscc.generate();
-  fs.writeFileSync('./src/tools/SQLParser.ts', compilerSorce!);
-  console.log('parse geneate end');
+  let compilerSorce = tscc.generate({ genDts: true });
+  if (compilerSorce == undefined) {
+    throw '构造SQL解析器失败';
+  } else {
+    fs.writeFileSync('./src/tools/SQLParser.ts', compilerSorce.code);
+    fs.writeFileSync('./src/tools/SQLParserDeclare.d.ts', compilerSorce.dts);
+    console.log('parse geneate end');
+  }
 }
 gen();

@@ -10,6 +10,6 @@
     "moduleResolution": "nodenext",
     "outDir": "./dist"
   },
-  "include": ["src/**/*"],
+  "include": ["src/tools/**/*.ts", "src/main.ts"],
   "exclude": ["dist"]
 }
