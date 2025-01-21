@@ -123,7 +123,7 @@ export class DataSet<T extends { [key: string]: any }> {
           throw `无效表名:${tableName}`;
         }
         result = row[this.tableNameToField[tableName][fieldName]];
-        exp.targetName = fieldName; //强制修改targetName给group使用
+        exp.targetName = this.tableNameToField[tableName][fieldName]; //强制修改targetName,group和缓存都用得上了
         if (result === undefined) {
           throw `无效属性: ${tableName}.${fieldName},如果是在group之后select,请使用group key中的字段值`;
         }
