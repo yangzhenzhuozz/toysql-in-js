@@ -410,6 +410,13 @@ export class DataSet<T extends { [key: string]: any }> {
         //对每一个窗口帧进行处理
         for (let line of tmpDs.data) {
           let frame = line['@frameGroupValues'];
+
+          if (windowFrame.order != undefined) {
+            let frameDS = new DataSet(frame, undefined, this.session);
+            frameDS.tableNameToField = this.tableNameToField;
+            frame = frameDS.orderBy(windowFrame.order).data;
+          }
+
           if (ds.session!.udf[windowFrame.windowFunction.value! as string].type == 'aggregate') {
             let aggregateVal = ds.execExp(windowFrame.windowFunction, line).value;
             for (let row of frame) {
@@ -421,11 +428,7 @@ export class DataSet<T extends { [key: string]: any }> {
               frame[i][windowFrame.alias ?? windowFrame.targetName] = windowFrameVals[i];
             }
           }
-          if (windowFrame.order != undefined) {
-            let frameDS = new DataSet(frame, undefined, this.session);
-            frameDS.tableNameToField = this.tableNameToField;
-            frame = frameDS.orderBy(windowFrame.order).data;
-          }
+          
           frameResult.push(...frame);
         }
         ds = new DataSet(frameResult, undefined, this.session);
