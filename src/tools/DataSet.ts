@@ -250,12 +250,11 @@ export class DataSet<T extends { [key: string]: any }> {
           throw `未定义函数:${fun_name}`;
         }
         if (this.session!.udf[fun_name].type == 'aggregate') {
-          if (row['@totalGroupValues'] === undefined && row['@frameGroupValues'] == undefined) {
+          if (row['@frameGroupValues'] == undefined) {
             throw `还没有group by或者开窗不能使用聚合函数${fun_name}`;
           } else {
-            let aggregateKey = row['@totalGroupValues'] !== undefined ? '@totalGroupValues' : '@frameGroupValues';
             let list = [] as valueType[][];
-            for (let subLine of row[aggregateKey]) {
+            for (let subLine of row['@frameGroupValues']) {
               let args = [];
               for (let child of children!) {
                 let arg = this.execExp(child, subLine).value! as valueType;
@@ -554,7 +553,7 @@ export class DataSet<T extends { [key: string]: any }> {
         tmpRow[cell.targetName] = cell.value!;
         groupValues.push(cell.value! as valueType);
       }
-      tmpRow['@totalGroupValues'] = groupValues.map((item) => item?.toString()).reduce((p, c) => p + ',' + c);
+      tmpRow['@groupKeys'] = groupValues.map((item) => item?.toString()).reduce((p, c) => p + ',' + c);
       ds.push(tmpRow);
     }
     let groupBy = (array: any[], key: string) => {
@@ -563,7 +562,7 @@ export class DataSet<T extends { [key: string]: any }> {
         return result;
       }, {});
     };
-    let groupObj = groupBy(ds, '@totalGroupValues');
+    let groupObj = groupBy(ds, '@groupKeys');
     let groupDs = [] as any[];
     for (let gk in groupObj) {
       let tmpRow = {} as any;
@@ -571,7 +570,7 @@ export class DataSet<T extends { [key: string]: any }> {
       for (let k of groupKeys) {
         tmpRow[k] = group[0][k];
       }
-      tmpRow['@totalGroupValues'] = group;
+      tmpRow['@frameGroupValues'] = group;
       groupDs.push(tmpRow);
     }
 
