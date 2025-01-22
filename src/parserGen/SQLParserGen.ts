@@ -9,7 +9,7 @@ declare interface DataSet<T> {
   alias(name: string): DataSet<T>;
   select(exps: (ExpNode | WindowFrame)[]): DataSet<any>;
   where(exp: ExpNode): DataSet<T>;
-  group(exps: ExpNode[]): DataSet<any>;
+  groupBy(exps: ExpNode[]): DataSet<any>;
   orderBy(exps: ExpNode[]): DataSet<any>;
   limit(exp: ExpNode): DataSet<any>;
   leftJoin(other: DataSet<any>, exp: ExpNode): DataSet<any>;
@@ -64,11 +64,11 @@ function gen() {
             }
             if (group_clause != undefined) {
               if (group_clause.op == 'group') {
-                tableView = tableView.group(group_clause.children!);
+                tableView = tableView.groupBy(group_clause.children!);
               } else if (group_clause.op == 'group_having') {
                 let group_exps = group_clause.children!.slice(0, -1);
                 let having_condition = group_clause.children!.slice(-1)[0];
-                tableView = tableView.group(group_exps);
+                tableView = tableView.groupBy(group_exps);
                 tableView = tableView.where(having_condition);
               }
             }
@@ -216,12 +216,12 @@ function gen() {
               {
                 op: 'immediate_val',
                 value: 1,
-                targetName: 'partion by 1',
+                targetName: '1',
               },
             ];
           },
         },
-      }, //默认创建一个exp
+      }, //默认创建一个exp=1的计算列,因为一定需要分区才能开窗
       {
         'partition_clause:partition by partition_list': {
           action: function ($): ExpNode[] {

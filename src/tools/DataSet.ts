@@ -91,7 +91,7 @@ export class DataSet<T extends { [key: string]: any }> {
     return ret;
   }
   //深度遍历执行
-  private execExp(exp: ExpNode, row: T): ExpNode {
+  private execExp(exp: ExpNode, row: any): ExpNode {
     /**
      * 直接从缓存结果返回数据(比如用group by做了一次函数计算),
      * select
@@ -100,13 +100,15 @@ export class DataSet<T extends { [key: string]: any }> {
      * from
      *  table
      * group by
-     *  left(name,4)
+     *  left(name,4) //会使用Symbol.for('left(name,4)')做key
+     * order by
+     *  left(name,4) //会使用Symbol.for('left(name,4)')做key
      */
-    if (row[exp.targetName] != undefined && exp.op != 'immediate_val') {
+    if (exp.op != 'immediate_val' && (row[exp.targetName] != undefined || row[Symbol.for(exp.targetName)] != undefined)) {
       return {
         op: 'immediate_val',
         targetName: exp.targetName,
-        value: row[exp.targetName],
+        value: row[exp.targetName] | row[Symbol.for(exp.targetName)],
       };
     }
 
@@ -250,11 +252,11 @@ export class DataSet<T extends { [key: string]: any }> {
           throw `未定义函数:${fun_name}`;
         }
         if (this.session!.udf[fun_name].type == 'aggregate') {
-          if (row['@frameGroupValues'] == undefined) {
+          if (row[Symbol.for('@frameGroupValues')] == undefined) {
             throw `还没有group by或者开窗不能使用聚合函数${fun_name}`;
           } else {
             let list = [] as valueType[][];
-            for (let subLine of row['@frameGroupValues']) {
+            for (let subLine of row[Symbol.for('@frameGroupValues')]) {
               let args = [];
               for (let child of children!) {
                 let arg = this.execExp(child, subLine).value! as valueType;
@@ -271,12 +273,11 @@ export class DataSet<T extends { [key: string]: any }> {
           }
           result = this.session!.udf[fun_name].handler(...args);
         } else {
-          if (row['@frameGroupValues'] == undefined) {
-            throw `还没有group by或者开窗不能使用聚合函数${fun_name}`;
+          if (row[Symbol.for('@frameGroupValues')] == undefined) {
+            throw `还没有开窗,不能使用窗口函数${fun_name}`;
           } else {
-            let aggregateKey = '@frameGroupValues';
             let list = [] as valueType[][];
-            for (let subLine of row[aggregateKey]) {
+            for (let subLine of row[Symbol.for('@frameGroupValues')]) {
               let args = [];
               for (let child of children!) {
                 let arg = this.execExp(child, subLine).value! as valueType;
@@ -386,7 +387,7 @@ export class DataSet<T extends { [key: string]: any }> {
       for (let i = 0; i < exps.length; i++) {
         let exp = exps[i];
         if (isWindowFrame(exp)) {
-          if(row_idx==0){
+          if (row_idx == 0) {
             windowFrames.push(exp);
           }
         } else {
@@ -405,13 +406,12 @@ export class DataSet<T extends { [key: string]: any }> {
     ds.name = this.name;
 
     if (windowFrames.length > 0) {
-      console.log('开始处理窗口');
       for (let windowFrame of windowFrames) {
-        let tmpDs = ds.group(windowFrame.partition); //各个不同分区的frame
+        let tmpDs = ds.groupBy(windowFrame.partition); //各个不同分区的frame
         let frameResult = [] as any[];
         //对每一个窗口帧进行处理
         for (let line of tmpDs.data) {
-          let frame = line['@frameGroupValues'];
+          let frame = line[Symbol.for('@frameGroupValues')];
 
           if (windowFrame.order != undefined) {
             let frameDS = new DataSet(frame, undefined, this.session);
@@ -430,7 +430,7 @@ export class DataSet<T extends { [key: string]: any }> {
               frame[i][windowFrame.alias ?? windowFrame.targetName] = windowFrameVals[i];
             }
           }
-          
+
           frameResult.push(...frame);
         }
         ds = new DataSet(frameResult, undefined, this.session);
@@ -454,7 +454,7 @@ export class DataSet<T extends { [key: string]: any }> {
     ds.name = this.name;
     return ds;
   }
-  public group(exps: ExpNode[]): DataSet<any> {
+  public groupBy(exps: ExpNode[]): DataSet<any> {
     let ds = [] as any[];
     let groupKeys = new Set<string>(); //可能是t1.id或者是id
     for (let i = 0; i < this.data.length; i++) {
@@ -472,30 +472,21 @@ export class DataSet<T extends { [key: string]: any }> {
           groupKeys.add(cell.targetName);
         }
 
-        tmpRow[cell.targetName] = cell.value!;
+        tmpRow[Symbol.for(cell.targetName)] = cell.value!;
         groupValues.push(cell.value! as valueType);
       }
-      tmpRow['@groupKeys'] = groupValues.map((item) => item?.toString()).reduce((p, c) => p + ',' + c);
+      tmpRow[Symbol.for('@groupKeys')] = groupValues.map((item) => item?.toString()).reduce((p, c) => p + ',' + c);
       ds.push(tmpRow);
     }
-    let groupBy = (array: any[], key: string) => {
-      return array.reduce((result, currentValue) => {
-        (result[currentValue[key]] = result[currentValue[key]] || []).push(currentValue);
-        return result;
-      }, {});
-    };
-    let groupObj = groupBy(ds, '@groupKeys');
+    let groupObj = Object.groupBy(ds, (item) => item[Symbol.for('@groupKeys')]);
     let groupDs = [] as any[];
     for (let gk in groupObj) {
       let tmpRow = {} as any;
       let group = groupObj[gk]!;
       for (let k of groupKeys) {
-        tmpRow[k] = group[0][k];
+        tmpRow[Symbol.for(k)] = group[0][Symbol.for(k)];
       }
-      for (let line of group){
-        delete line['@groupKeys'];
-      }
-      tmpRow['@frameGroupValues'] = group;
+      tmpRow[Symbol.for('@frameGroupValues')] = group;
       groupDs.push(tmpRow);
     }
 
@@ -507,7 +498,6 @@ export class DataSet<T extends { [key: string]: any }> {
   public orderBy(exps: ExpNode[]) {
     let arr = [] as any[];
     let orderKeys = [] as { name: string; order: 'asc' | 'desc' }[];
-    let orderFields = [] as string[];
     for (let i = 0; i < this.data.length; i++) {
       let row = this.data[i];
       let tmpRow = { ...row } as any;
@@ -517,8 +507,7 @@ export class DataSet<T extends { [key: string]: any }> {
         } else {
         }
         let orderKey = '@order by ' + exp.targetName;
-        orderFields.push(orderKey);
-        tmpRow[orderKey] = ret.value;
+        tmpRow[Symbol.for(orderKey)] = ret.value;
 
         //只在第一行判断group key
         if (i == 0) {
@@ -549,11 +538,6 @@ export class DataSet<T extends { [key: string]: any }> {
       return 0;
     };
     arr.sort(compare);
-    for (let row of arr) {
-      for (let k of orderFields) {
-        delete row[k];
-      }
-    }
     let ds = new DataSet(arr, undefined, this.session);
     ds.tableNameToField = this.tableNameToField; //orderBy不更新tableNameToField
     ds.name = this.name;
@@ -619,7 +603,7 @@ export class DataSet<T extends { [key: string]: any }> {
         };
       } else {
         duplicateKey.add(k);
-        delete keyTable[k]; //两个表都有同样的字段，直接删除，不能再直接使用id取字段
+        // delete keyTable[k]; //两个表都有同样的字段，直接删除，不能再直接使用id取字段
       }
     }
 
