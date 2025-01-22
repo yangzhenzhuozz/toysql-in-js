@@ -2,7 +2,7 @@ import fs from 'fs';
 import { Grammar, default as TSCC } from 'tscc';
 import { ExpNode, SelectList, WindowFrame } from '../tools/ExpTree.js';
 
-declare function isWindowFrame(obj:ExpNode|WindowFrame):obj is isWindowFrame;
+declare function isWindowFrame(obj:ExpNode|WindowFrame):obj is WindowFrame;
 
 declare interface DataSet<T> {
   data: T[];
