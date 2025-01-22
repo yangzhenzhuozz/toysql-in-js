@@ -386,7 +386,9 @@ export class DataSet<T extends { [key: string]: any }> {
       for (let i = 0; i < exps.length; i++) {
         let exp = exps[i];
         if (isWindowFrame(exp)) {
-          windowFrames.push(exp);
+          if(row_idx==0){
+            windowFrames.push(exp);
+          }
         } else {
           let cell = this.execExp(exp, row);
           if (tmpRow[cell.targetName!] !== undefined) {
