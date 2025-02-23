@@ -383,8 +383,11 @@ export class DataSet<T extends { [key: string]: any }> {
     let arr = [] as any[];
     let windowFrames = [] as WindowFrame[];
     for (let row_idx = 0; row_idx < this.data.length; row_idx++) {
-      let row = this.data[row_idx];
       let tmpRow = {} as any;
+      //默认把原始列全部隐藏,除非被显式的select
+      for(let k in this.data[row_idx]){
+        tmpRow[Symbol.for(k)] = this.data[row_idx][k];
+      }
       for (let i = 0; i < exps.length; i++) {
         let exp = exps[i];
         if (isWindowFrame(exp)) {
@@ -392,7 +395,7 @@ export class DataSet<T extends { [key: string]: any }> {
             windowFrames.push(exp);
           }
         } else {
-          let cell = this.execExp(exp, row);
+          let cell = this.execExp(exp, tmpRow);
           if (tmpRow[cell.targetName!] !== undefined) {
             throw `select重复属性:${cell.targetName!}`;
           }
