@@ -1,10 +1,10 @@
 # 安装
-npm i web-sql --production
+npm i toysql-in-js --production
 # demo
 
 ```js
-import { DataSet } from 'web-sql';
-import { SQLSession } from 'web-sql';
+import { DataSet } from 'toysql-in-js';
+import { SQLSession } from 'toysql-in-js';
 let testCase: { [key: string]: string } = {
   code0:`select * from t1`,
   code1: `
