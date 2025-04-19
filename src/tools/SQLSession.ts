@@ -42,7 +42,7 @@ export class SQLSession {
     let tableName = dataset.name;
     assert(tableName != undefined, '必须注册一个有名字的表');
     if (this.tableView[tableName] != undefined) {
-      throw `表:${name}已经存在`;
+      throw `表:${tableName}已经存在`;
     } else {
       this.tableView[tableName] = dataset;
       dataset.session = this;
